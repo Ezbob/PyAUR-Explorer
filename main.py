@@ -5,8 +5,10 @@ import shutil
 import tempfile
 import argparse
 
-aur_url = "https://aur.archlinux.org"
-rpc_url = aur_url + "/rpc"
+AUR_URL = "https://aur.archlinux.org"
+RPC_URL = AUR_URL + "/rpc"
+
+ENTRIES_SHOWN = 4
 
 def argument_parse():	
 	parser = argparse.ArgumentParser(description="Get stuff from the Arch User Repository")
@@ -30,6 +32,15 @@ def search_aur( pkg_name ):
 	json = check_json( open_get_request( rpc_url, params ) )
 	return json['resultcount'], json['results']
 
+def print_entry(entry):
+	if entry['Name'] != None:
+		print entry['Name']
+	if entry['Description'] != None:
+		print "\t\"" + entry['Description'] + "\""
+	if entry['Maintainer'] != None:
+		print "\tMaintainer: " + entry['Maintainer']
+	if entry['Version'] != None: 
+		print "\tVersion: " + entry['Version']
 
 if __name__ == '__main__':
 	args = argument_parse()
@@ -45,12 +56,15 @@ if __name__ == '__main__':
 				direct_pkg_result = result
 				results.remove(result)
 
+		#print results[0].keys()
+
 		if direct_pkg_result != None:
-			print "Found a direct match."
+			print "Found a direct match:"
+			print_entry(direct_pkg_result)
 		else:
-			print "Could not find a direct result. Found alternatives:"
-			for index in range( min( count, 3 ) ):
-				print results[index]['Name'] 
+			print "Could not find a direct match. Found alternatives:"
+			for index in range( min( count, ENTRIES_SHOWN ) ):
+				print_entry(results[index])
 
 #	dirpath = tempfile.mkdtemp()
 #	os.chdir( dirpath )
