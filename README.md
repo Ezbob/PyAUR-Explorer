@@ -20,4 +20,4 @@ This will give you a short usage message.
 
 ## Dependencies
 The following depedencies where used in this explorer:
-- [Requests](http://docs.python-requests.org/en/master/) - A frame work for working with HTTP request on a high abstraction level
+- [Requests](http://docs.python-requests.org/en/master/) : A library for working with HTTP request on a high abstraction level
