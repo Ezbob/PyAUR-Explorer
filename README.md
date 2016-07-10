@@ -17,3 +17,7 @@ To get an overview over the options you can parse to the explorer:
 ```python main.py --help``` or
 ```python main.py -h ``` 
 This will give you a short usage message.
+
+## Dependencies
+The following depedencies where used in this explorer:
+- [Requests](http://docs.python-requests.org/en/master/) - A frame work for working with HTTP request on a high abstraction level
