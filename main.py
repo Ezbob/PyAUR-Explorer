@@ -90,8 +90,33 @@ def show_alternatives(count, results):
         for entry in results:
             print_entry(entry)
     else:
-        for index in range( min( count, OPTIONS['ENTRIES_SHOWN'] ) ):
-            print_entry( results[index] )
+        step = OPTIONS['ENTRIES_SHOWN']
+
+        next_index = min( count, step )
+        do_loop = True
+        index = 0
+        while do_loop:
+            for index in range( index, next_index ):
+                print_entry( results[index] )
+
+            index += 1
+            diff = count - index 
+            
+            if (count - index) - 1 < step:
+                next_index = count
+            else:
+                next_index += step
+        
+            if diff == 0:
+                choice_msg = "No more entries. Press Enter to exit."
+            else:
+                choice_msg = "Press Enter to show the next " + str(diff) + " entries or q to quit: "
+
+            choice = raw_input(choice_msg).strip()
+
+            if diff == 0 or choice.strip().lower() == "q":
+                do_loop = False
+                
 
 def vprint(message):
     if OPTIONS['VERBOSE']:
@@ -125,7 +150,6 @@ def find_pkgbuild_file(path):
             return True
     return False
 
-
 def install_package(file_path):
     temp_dir = tempfile.mkdtemp()
     shutil.copy(file_path, temp_dir)
@@ -137,8 +161,7 @@ def install_package(file_path):
     print "Package contains the following entries:"
     tar_file.list()
 
-    print "\nProceed with extraction? [N,y]"
-    choice = raw_input()
+    choice = raw_input("\nProceed with extraction? [N,y] ")
     if choice.strip().lower() == "y":
         vprint("Extracting...")
         tar_file.extractall( path=temp_dir )
@@ -172,8 +195,7 @@ def direct_match( match_pkg ):
     filename = match_pkg['URLPath'].split('/')[-1] 
     if OPTIONS['INSTALL']:
         print "WARNING: Packages can contain malicious code. Install only from trusted sources."
-        print "Install package " + match_pkg['Name'] + " anyway? [N,y]"
-        choice = raw_input()
+        choice = raw_input("Install package " + match_pkg['Name'] + " anyway? [N,y] ")
         if choice.strip().lower() == "y":
             vprint("Downloading...")
             file_path = download_package(filename, match_pkg['URLPath'])
@@ -181,9 +203,7 @@ def direct_match( match_pkg ):
             install_package( file_path )
 
     elif OPTIONS['DOWNLOAD']:
-
-        print "Download " + filename + "? [N,y]"
-        choice = raw_input()
+        choice = raw_input("Download " + filename + "? [N,y] ")
         if choice.strip().lower() == "y":
             vprint("Downloading...")
             file_path = download_package(filename, match_pkg['URLPath'])
