@@ -112,6 +112,17 @@ def download_package(tar_url):
         for chunk in download_request.iter_content(chunk_size):
             file.write(chunk)
 
+def direct_match( match_pkg ):
+    vprint("Found a direct match:")
+    print_entry(match_pkg)
+    if OPTIONS['DOWNLOAD']:
+        print "Download? [N,y]"
+        choice = raw_input()
+        if choice.strip().lower() == "y":
+            download_package(match_pkg['URLPath'])
+
+
+
 if __name__ == '__main__':
     package_name = consume_arguments()
 
@@ -126,17 +137,10 @@ if __name__ == '__main__':
                 direct_pkg_result = result
                 results.remove(result)
 
-        results = sorted(results, key=lambda entry: entry['Popularity'], 
-            reverse=True) 
+        results = sorted(results, 
+            key=lambda entry: entry['Popularity'], reverse=True) 
 
         if direct_pkg_result != None:
-            vprint("Found a direct match:")
-            print_entry(direct_pkg_result)
-            if OPTIONS['DOWNLOAD']:
-                print "Download? [N,y]"
-                choice = raw_input()
-                if choice.strip().lower() == "y":
-                    download_package(direct_pkg_result['URLPath'])
-
+            direct_match( direct_pkg_result )
         else:
-            show_alternatives(count, results)
+            show_alternatives( count, results )
