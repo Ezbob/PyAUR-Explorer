@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import argparse
+import sys
 
 AUR_URL = "https://aur.archlinux.org"
 RPC_URL = AUR_URL + "/rpc"
@@ -24,9 +25,9 @@ def argument_parse():
     parser.add_argument("-e","--entries-shown",type=int, default=4, 
         help="Set the maximum number of entries shown when showing alternatives. This option gets ignored if all alternatives are set to be shown")
     parser.add_argument("-d","--download", action="store_true", 
-        help="Download the package")
-    parser.add_argument("-o","--output",default="./", 
-        help="Set the output directory for downloading packages")
+        help="Download the package if a exact match was found")
+    parser.add_argument("-o","--output",default="packages/", 
+        help="Set the output directory for downloading packages. Default: packages/")
     return parser.parse_args()
 
 def consume_arguments():
@@ -90,9 +91,11 @@ def vprint(message):
     if OPTIONS['VERBOSE']:
         print message
 
-def download_package(tar_url):
+def add_trailing_slash( path ):
+    return path if path.endswith("/") else path + "/"
+
+def download_package(filename, tar_url, chunk_size=64):
     download_url = AUR_URL + tar_url
-    filename = tar_url.split('/')[-1]
 
     if not os.path.exists(OPTIONS['OUT_DIR']):
         os.mkdir(OPTIONS['OUT_DIR'])
@@ -100,28 +103,35 @@ def download_package(tar_url):
         print "Output directory chosen is not a directory. Exiting"
         return
 
-    path_to = OPTIONS['OUT_DIR']
-    path_to if path_to.endswith("/") else path_to + "/"
+    path_to = add_trailing_slash( OPTIONS['OUT_DIR'] )
 
     file_path = path_to + filename
     download_request = open_get_request( download_url, params={}, stream=True )
 
-    chunk_size = 64
-
     with open(file_path, 'wb') as file:
         for chunk in download_request.iter_content(chunk_size):
             file.write(chunk)
+    return file_path
 
 def direct_match( match_pkg ):
     vprint("Found a direct match:")
     print_entry(match_pkg)
     if OPTIONS['DOWNLOAD']:
-        print "Download? [N,y]"
+        filename = match_pkg['URLPath'].split('/')[-1]
+        print "Download " + filename + "? [N,y]"
         choice = raw_input()
         if choice.strip().lower() == "y":
-            download_package(match_pkg['URLPath'])
+            vprint("Downloading...")
+            file_path = download_package(filename, match_pkg['URLPath'])
+            vprint("Downloaded. Saved as " + file_path)
 
-
+def find_direct_match( results ):
+    direct_pkg_result = None
+    for result in results:
+            if result['Name'] == package_name:
+                direct_pkg_result = result
+                results.remove(result)
+    return direct_pkg_result
 
 if __name__ == '__main__':
     package_name = consume_arguments()
@@ -132,10 +142,7 @@ if __name__ == '__main__':
     if count == 0:
         vprint("No results found.")
     else:
-        for result in results:
-            if result['Name'] == package_name:
-                direct_pkg_result = result
-                results.remove(result)
+        direct_pkg_result = find_direct_match(results)
 
         results = sorted(results, 
             key=lambda entry: entry['Popularity'], reverse=True) 
