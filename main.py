@@ -56,9 +56,10 @@ def check_json(req):
         return req.json()
     return req 
 
-def search_aur(pkg_name):
+# valid types are 'search' and 'info'
+def get_json_from_aur(pkg_name, request_type='search'):
     params = { 'v' : '5' }
-    params['type'] = 'search'
+    params['type'] = request_type
     params['arg'] = pkg_name
     json = check_json( open_get_request( RPC_URL, params ) )
     return json['resultcount'], json['results']
@@ -200,7 +201,7 @@ if __name__ == '__main__':
     package_name = consume_arguments()
 
     direct_pkg_result = None
-    count, results = search_aur( package_name )
+    count, results = get_json_from_aur( package_name )
     
     if count == 0:
         vprint("No results found.")
