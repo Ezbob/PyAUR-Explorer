@@ -5,6 +5,8 @@ import shutil
 import tempfile
 import argparse
 import sys
+import tarfile
+import subprocess
 
 AUR_URL = "https://aur.archlinux.org"
 RPC_URL = AUR_URL + "/rpc"
@@ -28,6 +30,8 @@ def argument_parse():
         help="Download the package if a exact match was found")
     parser.add_argument("-o","--output",default="packages/", 
         help="Set the output directory for downloading packages. Default: packages/")
+    parser.add_argument("-i","--install",action="store_true", 
+        help="Download and install the package using makepkg")
     return parser.parse_args()
 
 def consume_arguments():
@@ -39,6 +43,7 @@ def consume_arguments():
     OPTIONS['ENTRIES_SHOWN'] = args.entries_shown
     OPTIONS['DOWNLOAD'] = args.download
     OPTIONS['OUT_DIR'] = args.output
+    OPTIONS['INSTALL'] = args.install
     return args.pkg_name
 
 def open_get_request(url, params, stream=False):
@@ -113,11 +118,69 @@ def download_package(filename, tar_url, chunk_size=64):
             file.write(chunk)
     return file_path
 
+def find_pkgbuild_file(path):
+    for file in os.listdir(path):
+        if file == "PKGBUILD":
+            return True
+    return False
+
+
+def install_package(file_path):
+    temp_dir = tempfile.mkdtemp()
+    shutil.copy(file_path, temp_dir)
+
+    tar_filename = file_path.split("/")[-1]
+    temp_path = add_trailing_slash(temp_dir) + tar_filename 
+    tar_file = tarfile.open(temp_path) 
+
+    print "Package contains the following entries:"
+    tar_file.list()
+
+    print "\nProceed with extraction? [N,y]"
+    choice = raw_input()
+    if choice.strip().lower() == "y":
+        vprint("Extracting...")
+        tar_file.extractall( path=temp_dir )
+        vprint("Extracted.")
+
+        extracted_dir = add_trailing_slash(temp_dir) + tar_filename.split(".")[0]
+
+        vprint("Installing using makepkg")
+        os.chdir(extracted_dir)
+
+        vprint("Searching for PKGBUILD file...")
+        if not find_pkgbuild_file( extracted_dir ):
+            print "Error: could not find PKGBUILD exiting..."
+  
+        vprint("PKGBUILD found.")
+
+        vprint("Parsing control to makepkg.")
+        exitcode = subprocess.call(['makepkg', "-sir"])
+        
+        if exitcode == 0:
+            vprint("Installation was successful!")
+        else:
+            vprint("Installation was unsuccessful.")
+
+    if os.path.exists( temp_dir ):
+        shutil.rmtree( temp_dir )
+
 def direct_match( match_pkg ):
     vprint("Found a direct match:")
     print_entry(match_pkg)
-    if OPTIONS['DOWNLOAD']:
-        filename = match_pkg['URLPath'].split('/')[-1]
+    filename = match_pkg['URLPath'].split('/')[-1] 
+    if OPTIONS['INSTALL']:
+        print "WARNING: Packages can contain malicious code. Install only from trusted sources."
+        print "Install package " + match_pkg['Name'] + " anyway? [N,y]"
+        choice = raw_input()
+        if choice.strip().lower() == "y":
+            vprint("Downloading...")
+            file_path = download_package(filename, match_pkg['URLPath'])
+            vprint("Downloaded. Saved as " + file_path)
+            install_package( file_path )
+
+    elif OPTIONS['DOWNLOAD']:
+
         print "Download " + filename + "? [N,y]"
         choice = raw_input()
         if choice.strip().lower() == "y":
@@ -151,3 +214,4 @@ if __name__ == '__main__':
             direct_match( direct_pkg_result )
         else:
             show_alternatives( count, results )
+
