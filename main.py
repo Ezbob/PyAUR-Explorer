@@ -102,7 +102,7 @@ def show_alternatives(count, results):
             index += 1
             diff = count - index 
             
-            if (count - index) - 1 < step:
+            if diff - 1 < step:
                 next_index = count
             else:
                 next_index += step
