@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/python
 import requests
 import os
 import shutil
@@ -64,28 +64,34 @@ def get_json_from_aur(pkg_name, request_type='search'):
     json = check_json( open_get_request( RPC_URL, params ) )
     return json['resultcount'], json['results']
 
+def ask( message ):
+    if sys.version_info[0] == 2:
+        return raw_input(message)
+    else:
+    	return input(message)
+
+def decode(message, encoding='utf-8'):
+	if type(message) == bytes:
+		return message.decode(encoding)
+	return message
+
 def print_entry(entry):
     if OPTIONS['LONG_PRINT']:
-        print entry['Name']
-        for key, val in entry.iteritems():
+        print( decode(entry['Name']) )
+        for key, val in entry.items():
             if key == 'Name':
                 pass
             else:
-                print "\t" + key + ": ",
-                if type(val) is not str and type(val) is not unicode:
-                    print unicode(val)
-                else:
-                    print val.encode('utf-8')
+                print( "\t{}: {}".format(key, decode(val)) )
     else:
-        keys = ['Description','Maintainer','Version','Popularity']
+        keys = ['Description', 'Maintainer', 'Version', 'Popularity']
         if entry['Name'] != None:
-            print unicode(entry['Name'])
+            print( decode(entry['Name']) )
         for key in keys:
-            print "\t" + key + ": " + unicode(entry[key])
+            print( "\t{}: {}".format(key, decode( entry[key])))
 
 def show_alternatives(count, results):
-    vprint("Could not find a direct match. Found " + str(count) + 
-        " alternatives:")
+    vprint("Could not find a direct match. Found {} alternatives:".format(count))
     if OPTIONS['ALL_PRINT']:
         for entry in results:
             print_entry(entry)
@@ -110,17 +116,16 @@ def show_alternatives(count, results):
             if diff == 0:
                 choice_msg = "No more entries. Press Enter to exit."
             else:
-                choice_msg = "Press Enter to show the next " + str(diff) + " entries or q to quit: "
+                choice_msg = "Press Enter to show the next {} entries or q to quit: ".format(diff)
 
-            choice = raw_input(choice_msg).strip()
+            choice = ask(choice_msg).strip().lower()
 
-            if diff == 0 or choice.strip().lower() == "q":
+            if diff == 0 or choice == "q":
                 do_loop = False
                 
-
 def vprint(message):
     if OPTIONS['VERBOSE']:
-        print message
+        print(message)
 
 def add_trailing_slash( path ):
     return path if path.endswith("/") else path + "/"
@@ -131,7 +136,7 @@ def download_package(filename, tar_url, chunk_size=64):
     if not os.path.exists(OPTIONS['OUT_DIR']):
         os.mkdir(OPTIONS['OUT_DIR'])
     elif not os.path.isdir(OPTIONS['OUT_DIR']):
-        print "Output directory chosen is not a directory. Exiting"
+        print("Output directory chosen is not a directory. Exiting.")
         return
 
     path_to = add_trailing_slash( OPTIONS['OUT_DIR'] )
@@ -158,11 +163,11 @@ def install_package(file_path):
     temp_path = add_trailing_slash(temp_dir) + tar_filename 
     tar_file = tarfile.open(temp_path) 
 
-    print "Package contains the following entries:"
+    print("Package contains the following entries:")
     tar_file.list()
 
-    choice = raw_input("\nProceed with extraction? [N,y] ")
-    if choice.strip().lower() == "y":
+    choice = ask("\nProceed with extraction? [N,y] ").strip().lower()
+    if choice == "y":
         vprint("Extracting...")
         tar_file.extractall( path=temp_dir )
         vprint("Extracted.")
@@ -174,7 +179,7 @@ def install_package(file_path):
 
         vprint("Searching for PKGBUILD file...")
         if not find_pkgbuild_file( extracted_dir ):
-            print "Error: could not find PKGBUILD exiting..."
+            print("Error: could not find PKGBUILD exiting...")
   
         vprint("PKGBUILD found.")
 
@@ -194,20 +199,20 @@ def direct_match( match_pkg ):
     print_entry(match_pkg)
     filename = match_pkg['URLPath'].split('/')[-1] 
     if OPTIONS['INSTALL']:
-        print "WARNING: Packages can contain malicious code. Install only from trusted sources."
-        choice = raw_input("Install package " + match_pkg['Name'] + " anyway? [N,y] ")
+        print( "WARNING: Packages can contain malicious code. Install only from trusted sources." )
+        choice = ask("Install package {} anyway? [N,y] ".format( match_pkg['Name'] ))
         if choice.strip().lower() == "y":
             vprint("Downloading...")
             file_path = download_package(filename, match_pkg['URLPath'])
-            vprint("Downloaded. Saved as " + file_path)
+            vprint("Downloaded. Saved as {}".format( file_path ))
             install_package( file_path )
 
     elif OPTIONS['DOWNLOAD']:
-        choice = raw_input("Download " + filename + "? [N,y] ")
+        choice = ask("Download {}? [N,y] ".format(filename))
         if choice.strip().lower() == "y":
             vprint("Downloading...")
             file_path = download_package(filename, match_pkg['URLPath'])
-            vprint("Downloaded. Saved as " + file_path)
+            vprint("Downloaded. Saved as {}".format(file_path))
 
 def find_direct_match( results ):
     direct_pkg_result = None
