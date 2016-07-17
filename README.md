@@ -1,8 +1,11 @@
 # Python AUR explorer
 
 ## What is this?
-This a Arch User Repository explorer written in Python 2.
+This a Arch User Repository explorer written in Python.
 With this you can search for different packages located in the AUR.
+
+# Python Version Compatibility
+This explorer has recently been adjusted to target both Python 2.7 and Python 3.5 . 
 
 ## How-To
 
