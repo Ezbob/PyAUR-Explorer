@@ -11,7 +11,7 @@ import subprocess
 AUR_URL = "https://aur.archlinux.org"
 RPC_URL = AUR_URL + "/rpc"
 
-OPTIONS = {}
+OPTIONS = None
 
 def argument_parse():   
     parser = argparse.ArgumentParser(
@@ -37,13 +37,7 @@ def argument_parse():
 def consume_arguments():
     global OPTIONS
     args = argument_parse()
-    OPTIONS['LONG_PRINT'] = args.long_print
-    OPTIONS['VERBOSE'] = args.verbose
-    OPTIONS['ALL_PRINT'] = args.all
-    OPTIONS['ENTRIES_SHOWN'] = args.entries_shown
-    OPTIONS['DOWNLOAD'] = args.download
-    OPTIONS['OUT_DIR'] = args.output
-    OPTIONS['INSTALL'] = args.install
+    OPTIONS = vars( args )
     return args.pkg_name
 
 def open_get_request(url, params, stream=False):
@@ -76,7 +70,7 @@ def decode(message, encoding='utf-8'):
 	return message
 
 def print_entry(entry):
-    if OPTIONS['LONG_PRINT']:
+    if OPTIONS['long_print']:
         print( decode(entry['Name']) )
         for key, val in entry.items():
             if key == 'Name':
@@ -92,11 +86,11 @@ def print_entry(entry):
 
 def show_alternatives(count, results):
     vprint("Could not find a direct match. Found {} alternatives:".format(count))
-    if OPTIONS['ALL_PRINT']:
+    if OPTIONS['all']:
         for entry in results:
             print_entry(entry)
     else:
-        step = OPTIONS['ENTRIES_SHOWN']
+        step = OPTIONS['entries_shown']
 
         next_index = min( count, step )
         do_loop = True
@@ -124,7 +118,7 @@ def show_alternatives(count, results):
                 do_loop = False
                 
 def vprint(message):
-    if OPTIONS['VERBOSE']:
+    if OPTIONS['verbose']:
         print(message)
 
 def add_trailing_slash( path ):
@@ -133,13 +127,13 @@ def add_trailing_slash( path ):
 def download_package(filename, tar_url, chunk_size=64):
     download_url = AUR_URL + tar_url
 
-    if not os.path.exists(OPTIONS['OUT_DIR']):
-        os.mkdir(OPTIONS['OUT_DIR'])
-    elif not os.path.isdir(OPTIONS['OUT_DIR']):
+    if not os.path.exists(OPTIONS['output']):
+        os.mkdir(OPTIONS['output'])
+    elif not os.path.isdir(OPTIONS['output']):
         print("Output directory chosen is not a directory. Exiting.")
         return
 
-    path_to = add_trailing_slash( OPTIONS['OUT_DIR'] )
+    path_to = add_trailing_slash( OPTIONS['output'] )
 
     file_path = path_to + filename
     download_request = open_get_request( download_url, params={}, stream=True )
@@ -198,7 +192,7 @@ def direct_match( match_pkg ):
     vprint("Found a direct match:")
     print_entry(match_pkg)
     filename = match_pkg['URLPath'].split('/')[-1] 
-    if OPTIONS['INSTALL']:
+    if OPTIONS['install']:
         print( "WARNING: Packages can contain malicious code. Install only from trusted sources." )
         choice = ask("Install package {} anyway? [N,y] ".format( match_pkg['Name'] ))
         if choice.strip().lower() == "y":
@@ -207,7 +201,7 @@ def direct_match( match_pkg ):
             vprint("Downloaded. Saved as {}".format( file_path ))
             install_package( file_path )
 
-    elif OPTIONS['DOWNLOAD']:
+    elif OPTIONS['download']:
         choice = ask("Download {}? [N,y] ".format(filename))
         if choice.strip().lower() == "y":
             vprint("Downloading...")
