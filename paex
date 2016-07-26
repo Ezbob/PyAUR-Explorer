@@ -59,15 +59,10 @@ def get_json_from_aur(pkg_name, request_type='search'):
     return json['resultcount'], json['results']
 
 def ask( message ):
-    if sys.version_info[0] == 2:
-        return raw_input(message)
-    else:
-    	return input(message)
+    return raw_input(message) if sys.version_info[0] == 2 else input(message)
 
 def decode(message, encoding='utf-8'):
-	if type(message) == bytes:
-		return message.decode(encoding)
-	return message
+	return message.decode(encoding) if type(message) == bytes else message
 
 def print_entry(entry):
     if OPTIONS['long_print']:
@@ -156,37 +151,42 @@ def install_package(file_path):
     tar_filename = file_path.split("/")[-1]
     temp_path = add_trailing_slash(temp_dir) + tar_filename 
     tar_file = tarfile.open(temp_path) 
+    try:
+        print("Package contains the following entries:")
+        tar_file.list()
 
-    print("Package contains the following entries:")
-    tar_file.list()
+        choice = ask("\nProceed with extraction? [N,y] ").strip().lower()
+        if choice == "y":
+            vprint("Extracting...")
+            tar_file.extractall( path=temp_dir )
+            vprint("Extracted.")
 
-    choice = ask("\nProceed with extraction? [N,y] ").strip().lower()
-    if choice == "y":
-        vprint("Extracting...")
-        tar_file.extractall( path=temp_dir )
-        vprint("Extracted.")
+            extracted_dir = add_trailing_slash(temp_dir) + tar_filename.split(".")[0]
 
-        extracted_dir = add_trailing_slash(temp_dir) + tar_filename.split(".")[0]
+            vprint("Installing using makepkg")
+            os.chdir(extracted_dir)
 
-        vprint("Installing using makepkg")
-        os.chdir(extracted_dir)
+            vprint("Searching for PKGBUILD file...")
+            if not find_pkgbuild_file( extracted_dir ):
+                print("Error: could not find PKGBUILD exiting...")
+      
+            vprint("PKGBUILD found.")
 
-        vprint("Searching for PKGBUILD file...")
-        if not find_pkgbuild_file( extracted_dir ):
-            print("Error: could not find PKGBUILD exiting...")
-  
-        vprint("PKGBUILD found.")
+            vprint("Parsing control to makepkg.")
+            exitcode = subprocess.call(['makepkg', "-sir"])
+            
+            if exitcode == 0:
+                vprint("Installation was successful!")
+            else:
+                vprint("Installation was unsuccessful.")
 
-        vprint("Parsing control to makepkg.")
-        exitcode = subprocess.call(['makepkg', "-sir"])
+    except Exception as e:
+        raise e
         
-        if exitcode == 0:
-            vprint("Installation was successful!")
-        else:
-            vprint("Installation was unsuccessful.")
-
-    if os.path.exists( temp_dir ):
-        shutil.rmtree( temp_dir )
+    finally:
+        tar_file.close()
+        if os.path.exists( temp_dir ):
+            shutil.rmtree( temp_dir )
 
 def direct_match( match_pkg ):
     vprint("Found a direct match:")
