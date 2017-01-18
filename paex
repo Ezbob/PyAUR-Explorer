@@ -16,8 +16,8 @@ OPTIONS = None
 def argument_parse():   
     parser = argparse.ArgumentParser(
         description="Search for the pkg_name in the Arch User Repository")
-    parser.add_argument("pkg_name", 
-        help="Package name")
+    parser.add_argument("package", nargs='+', 
+    	help="List of packages to search for")
     parser.add_argument("-lp","--long-print", action="store_true", 
         help="Prints all info fields")
     parser.add_argument("-v","--verbose", action="store_true", 
@@ -38,7 +38,7 @@ def consume_arguments():
     global OPTIONS
     args = argument_parse()
     OPTIONS = vars( args )
-    return args.pkg_name
+    return args.package
 
 def open_get_request(url, params, stream=False):
     req = requests.get( url, params=params, stream=stream )
@@ -121,6 +121,7 @@ def add_trailing_slash( path ):
 
 def download_package(filename, tar_url, chunk_size=64):
     download_url = AUR_URL + tar_url
+    print(tar_url)
 
     if not os.path.exists(OPTIONS['output']):
         os.mkdir(OPTIONS['output'])
@@ -217,21 +218,29 @@ def find_direct_match( results ):
     return direct_pkg_result
 
 if __name__ == '__main__':
-    package_name = consume_arguments()
+    package_names = consume_arguments()
+    for package_name in package_names:
+    	count, results = get_json_from_aur( package_name )
+    	if count == 0:
+    		print("No results found for {}".format(package_name))
+    	else:
+    		direct_pkg_match = find_direct_match(results)
+    		if direct_match is not None:
+    			direct_match(direct_pkg_match) 
 
-    direct_pkg_result = None
-    count, results = get_json_from_aur( package_name )
+    # direct_pkg_result = None
+    # count, results = get_json_from_aur( package_name )
     
-    if count == 0:
-        vprint("No results found.")
-    else:
-        direct_pkg_result = find_direct_match(results)
+    # if count == 0:
+    #     vprint("No results found.")
+    # else:
+    #     direct_pkg_result = find_direct_match(results)
 
-        results = sorted(results, 
-            key=lambda entry: entry['Popularity'], reverse=True) 
+    #     results = sorted(results, 
+    #         key=lambda entry: entry['Popularity'], reverse=True) 
 
-        if direct_pkg_result != None:
-            direct_match( direct_pkg_result )
-        else:
-            show_alternatives( count, results )
+    #     if direct_pkg_result != None:
+    #         direct_match( direct_pkg_result )
+    #     else:
+    #         show_alternatives( count, results )
 
