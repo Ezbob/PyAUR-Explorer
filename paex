@@ -7,11 +7,13 @@ import argparse
 import sys
 import tarfile
 import subprocess
+import datetime
 
 AUR_URL = "https://aur.archlinux.org"
 RPC_URL = AUR_URL + "/rpc"
 
 OPTIONS = None
+
 
 def argument_parse():   
     parser = argparse.ArgumentParser(
@@ -34,16 +36,19 @@ def argument_parse():
         help="Download and install the package using makepkg")
     return parser.parse_args()
 
+
 def consume_arguments():
     global OPTIONS
     args = argument_parse()
     OPTIONS = vars( args )
     return args.pkg_name
 
+
 def open_get_request(url, params, stream=False):
     req = requests.get( url, params=params, stream=stream )
     req.raise_for_status()
     return req
+
 
 def check_json(req):
     if req.headers['Content-Type'] == "application/json":
@@ -56,13 +61,25 @@ def get_json_from_aur(pkg_name, request_type='search'):
     params['type'] = request_type
     params['arg'] = pkg_name
     json = check_json( open_get_request( RPC_URL, params ) )
-    return json['resultcount'], json['results']
+
+    if json['type'] == "error":
+        print("Server returned an error:", json['error'])
+        exit(1)
+    else:
+        return json['resultcount'], json['results']
+
+def date_from_timestamp(timestamp):
+    return datetime.datetime.fromtimestamp(
+        int(timestamp)
+    ).strftime('%H:%M %d-%m-%Y')
 
 def ask( message ):
     return raw_input(message) if sys.version_info[0] == 2 else input(message)
 
+
 def decode(message, encoding='utf-8'):
 	return message.decode(encoding) if type(message) == bytes else message
+
 
 def print_entry(entry):
     if OPTIONS['long_print']:
@@ -70,6 +87,8 @@ def print_entry(entry):
         for key, val in entry.items():
             if key == 'Name':
                 pass
+            if key == 'FirstSubmitted' or key == 'LastModified':
+                print("\t{}: {}".format(key, date_from_timestamp(decode(val))))
             else:
                 print( "\t{}: {}".format(key, decode(val)) )
     else:
@@ -78,6 +97,7 @@ def print_entry(entry):
             print( decode(entry['Name']) )
         for key in keys:
             print( "\t{}: {}".format(key, decode( entry[key])))
+
 
 def show_alternatives(count, results):
     vprint("Could not find a direct match. Found {} alternatives:".format(count))
@@ -111,13 +131,16 @@ def show_alternatives(count, results):
 
             if diff == 0 or choice == "q":
                 do_loop = False
-                
+               
+
 def vprint(message):
     if OPTIONS['verbose']:
         print(message)
 
+
 def add_trailing_slash( path ):
     return path if path.endswith("/") else path + "/"
+
 
 def download_package(filename, tar_url, chunk_size=64):
     download_url = AUR_URL + tar_url
@@ -138,55 +161,50 @@ def download_package(filename, tar_url, chunk_size=64):
             file.write(chunk)
     return file_path
 
+
 def find_pkgbuild_file(path):
     for file in os.listdir(path):
         if file == "PKGBUILD":
             return True
     return False
 
+
 def install_package(file_path):
-    temp_dir = tempfile.mkdtemp()
-    shutil.copy(file_path, temp_dir)
+    with tempfile.TemporaryDirectory() as temp_dir:
 
-    tar_filename = file_path.split("/")[-1]
-    temp_path = add_trailing_slash(temp_dir) + tar_filename 
-    tar_file = tarfile.open(temp_path) 
-    try:
-        print("Package contains the following entries:")
-        tar_file.list()
+        shutil.copy(file_path, temp_dir)
+        tar_filename = file_path.split("/")[-1]
+        temp_path = add_trailing_slash(temp_dir) + tar_filename 
 
-        choice = ask("\nProceed with extraction? [N,y] ").strip().lower()
-        if choice == "y":
-            vprint("Extracting...")
-            tar_file.extractall( path=temp_dir )
-            vprint("Extracted.")
+        with tarfile.open(temp_path) as tar_file:
+            print("Package contains the following entries:")
+            tar_file.list()
 
-            extracted_dir = add_trailing_slash(temp_dir) + tar_filename.split(".")[0]
+            choice = ask("\nProceed with extraction? [N,y] ").strip().lower()
+            if choice == "y":
+                vprint("Extracting...")
+                tar_file.extractall( path=temp_dir )
+                vprint("Extracted.")
 
-            vprint("Installing using makepkg")
-            os.chdir(extracted_dir)
+                extracted_dir = add_trailing_slash(temp_dir) + tar_filename.split(".")[0]
 
-            vprint("Searching for PKGBUILD file...")
-            if not find_pkgbuild_file( extracted_dir ):
-                print("Error: could not find PKGBUILD exiting...")
-      
-            vprint("PKGBUILD found.")
+                vprint("Installing using makepkg")
+                os.chdir(extracted_dir)
 
-            vprint("Parsing control to makepkg.")
-            exitcode = subprocess.call(['makepkg', "-sir"])
-            
-            if exitcode == 0:
-                vprint("Installation was successful!")
-            else:
-                vprint("Installation was unsuccessful.")
+                vprint("Searching for PKGBUILD file...")
+                if not find_pkgbuild_file( extracted_dir ):
+                    print("Error: could not find PKGBUILD exiting...")
+          
+                vprint("PKGBUILD found.")
 
-    except Exception as e:
-        raise e
-        
-    finally:
-        tar_file.close()
-        if os.path.exists( temp_dir ):
-            shutil.rmtree( temp_dir )
+                vprint("Parsing control to makepkg.")
+                exitcode = subprocess.call(['makepkg', "-sir"])
+                
+                if exitcode == 0:
+                    vprint("Installation was successful!")
+                else:
+                    vprint("Installation was unsuccessful.")
+
 
 def direct_match( match_pkg ):
     vprint("Found a direct match:")
@@ -208,13 +226,16 @@ def direct_match( match_pkg ):
             file_path = download_package(filename, match_pkg['URLPath'])
             vprint("Downloaded. Saved as {}".format(file_path))
 
+
 def find_direct_match( results ):
     direct_pkg_result = None
     for result in results:
-            if result['Name'] == package_name:
-                direct_pkg_result = result
-                results.remove(result)
+        if result['Name'] == package_name:
+            direct_pkg_result = result
+            results.remove(result)
+            break
     return direct_pkg_result
+
 
 if __name__ == '__main__':
     package_name = consume_arguments()
@@ -230,7 +251,7 @@ if __name__ == '__main__':
         results = sorted(results, 
             key=lambda entry: entry['Popularity'], reverse=True) 
 
-        if direct_pkg_result != None:
+        if direct_pkg_result:
             direct_match( direct_pkg_result )
         else:
             show_alternatives( count, results )
