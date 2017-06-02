@@ -11,7 +11,7 @@ This explorer has recently been adjusted to target both Python 2.7 and Python 3.
 
 ### Run it
 To search for a package simply use the following command:
-``` python main.py <package query>```
+``` python pythur <package query>```
 
 Where `<package query>` can be replace with the name of the package you're looking for.
 
