@@ -17,8 +17,8 @@ Where `<package query>` can be replace with the name of the package you're looki
 
 ### Get help
 To get an overview over the options you can parse to the explorer:
-```python main.py --help``` or
-```python main.py -h ``` 
+```python pythur --help``` or
+```python pythur -h ``` 
 This will give you a short usage message.
 
 ## Dependencies
