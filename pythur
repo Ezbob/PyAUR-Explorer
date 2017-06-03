@@ -8,11 +8,13 @@ import sys
 import tarfile
 import subprocess
 import datetime
+import configparser
+import warnings
 
-AUR_URL = "https://aur.archlinux.org"
-RPC_URL = AUR_URL + "/rpc"
-
+AUR_URL = None
+RPC_URL = None
 OPTIONS = None
+CONFIG = None
 
 
 def argument_parse():   
@@ -61,7 +63,9 @@ def check_json(req):
 
 # valid types are 'search' and 'info'
 def get_json_from_aur(pkg_name, request_type='search'):
-    params = { 'v' : '5' }
+
+    version = CONFIG.get('AURconnection', 'version', fallback="5")
+    params = { 'v' : version }
     params['type'] = request_type
     params['arg'] = pkg_name
     json = check_json( open_get_request( RPC_URL, params ) )
@@ -250,7 +254,20 @@ def find_direct_match( results ):
     return direct_pkg_result
 
 
+def initialize_config():
+    global CONFIG
+    CONFIG = configparser.ConfigParser()
+    CONFIG.read(['config.ini', os.path.expanduser('~/.config/pythur/config.ini')]) 
+    if not CONFIG.sections():
+        warnings.warn("No or empty configuration file detected")
+
+
 if __name__ == '__main__':
+    initialize_config()
+
+    AUR_URL = CONFIG.get('connections', 'aurbaseurl', fallback='https://aur.archlinux.org')
+    RPC_URL = AUR_URL + CONFIG.get('connections', 'rpcurl', fallback='/rpc')
+
     package_name = consume_arguments()
 
     direct_pkg_result = None
