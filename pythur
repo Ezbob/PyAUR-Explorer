@@ -16,6 +16,16 @@ RPC_URL = None
 OPTIONS = None
 CONFIG = None
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 
 def argument_parse():   
     parser = argparse.ArgumentParser(
@@ -71,7 +81,7 @@ def get_json_from_aur(pkg_name, request_type='search'):
     json = check_json( open_get_request( RPC_URL, params ) )
 
     if json['type'] == "error":
-        print("Server returned an error:", json['error'])
+        print(bcolors.FAIL + "Server returned an error:", json['error'], bcolors.ENDC)
         exit(1)
     else:
         return json['resultcount'], json['results']
@@ -91,24 +101,23 @@ def decode(message, encoding='utf-8'):
 
 def print_entry(entry):
     if OPTIONS['long_print']:
-        print( decode(entry['Name']) )
+        print(bcolors.BOLD + decode(entry['Name']), bcolors.ENDC )
         for key, val in entry.items():
             if key == 'Name':
-                pass
+                continue
             if key == 'FirstSubmitted' or key == 'LastModified':
-                print("\t{}: {}".format(key, date_from_timestamp(decode(val))))
+                print("\t{}{}{}: {}".format(bcolors.OKBLUE, key, bcolors.ENDC, date_from_timestamp(decode(val))))
             else:
-                print( "\t{}: {}".format(key, decode(val)) )
+                print("\t{}{}{}: {}".format(bcolors.OKBLUE, key, bcolors.ENDC, decode(val)))
     else:
         keys = ['Description', 'Maintainer', 'Version', 'Popularity']
         if entry['Name'] != None:
-            print( decode(entry['Name']) )
+            print(bcolors.BOLD + decode(entry['Name']) + bcolors.ENDC)
         for key in keys:
-            print( "\t{}: {}".format(key, decode( entry[key])))
+            print("\t{}{}{}: {}".format(bcolors.OKBLUE, key, bcolors.ENDC, decode(entry[key])))
 
 
 def show_alternatives(count, results):
-    vprint("Could not find a direct match. Found {} alternatives:".format(count))
     if OPTIONS['all']:
         for entry in results:
             print_entry(entry)
@@ -131,13 +140,17 @@ def show_alternatives(count, results):
                 next_index += step
         
             if diff == 0:
-                choice_msg = "No more entries. Press Enter to exit."
+                choice_msg = "No more entries. Press {}enter{} to exit.\n".format(bcolors.OKGREEN, bcolors.ENDC)
             else:
-                choice_msg = "Press Enter to show the next {} entries or q to quit: ".format(diff)
+                choice_msg = "Press {}enter{} to show the next {} entries or {}ctrl-c{} to quit:\n"\
+                    .format(bcolors.OKGREEN, bcolors.ENDC, diff, bcolors.FAIL, bcolors.ENDC)
 
-            choice = ask(choice_msg).strip().lower()
+            try:
+                choice = ask(choice_msg).strip().lower()
+            except KeyboardInterrupt as e:
+                exit(0)
 
-            if diff == 0 or choice == "q":
+            if diff == 0:
                 do_loop = False
                
 
@@ -212,8 +225,7 @@ def install_package(file_path):
                     vprint("Installation was unsuccessful.")
 
 
-def direct_match( match_pkg ):
-    vprint("Found a direct match:")
+def direct_match(match_pkg):
     print_entry(match_pkg)
     filename = match_pkg['URLPath'].split('/')[-1]
 
@@ -274,7 +286,7 @@ if __name__ == '__main__':
     count, results = get_json_from_aur( package_name )
     
     if count == 0:
-        vprint("No results found.")
+        vprint(bcolors.FAIL + "No results found." + bcolors.ENDC)
     else:
         direct_pkg_result = find_direct_match(results)
 
@@ -282,7 +294,9 @@ if __name__ == '__main__':
             key=lambda entry: entry['Popularity'], reverse=True) 
 
         if direct_pkg_result:
+            vprint("Found a direct match:")
             direct_match( direct_pkg_result )
         else:
+            vprint("Could not find a direct match. Found {} alternatives:".format(count))
             show_alternatives( count, results )
 
