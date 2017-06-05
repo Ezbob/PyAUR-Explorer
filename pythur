@@ -218,8 +218,11 @@ def update_installed_packages(match_pkg, do_update=False):
         DB_CONNECT.execute("UPDATE packages SET lastModified=?, status=?, version=? WHERE name=? ;", 
             (match_pkg['LastModified'], Status.Installed.value, match_pkg['Version'], name))
     else:
-        DB_CONNECT.execute("INSERT INTO packages VALUES (?,?,?,?);", 
-            (name, match_pkg['Version'], match_pkg['LastModified'], Status.Installed.value))
+        try:
+            DB_CONNECT.execute("INSERT INTO packages VALUES (?,?,?,?);", 
+                (name, match_pkg['Version'], match_pkg['LastModified'], Status.Installed.value))
+        except sqlite3.IntegrityError:
+            pass
     DB_CONNECT.commit()
 
 
@@ -231,7 +234,7 @@ def direct_match(match_pkg):
     file_path = output_path + filename
     entry = DB_CONNECT.execute("SELECT version FROM packages WHERE name=? ;", (match_pkg['Name'],)).fetchone()
     do_download = OPTIONS['update'] or not (os.path.exists(file_path) and os.path.isfile(file_path))
-    do_update = len(entry) > 0 and entry[0] != match_pkg['Version']
+    do_update = entry and entry[0] != match_pkg['Version']
 
     if OPTIONS['install']:
         cprint( "WARNING: Packages can contain malicious code. Install only from trusted sources.", color=bcolors.WARNING)
@@ -289,7 +292,7 @@ def initialize_db():
 
     if not os.path.exists(ddir): 
         os.makedirs(ddir)
-        ddl = "CREATE TABLE packages (name TEXT, version TEXT, lastModified INTEGER, status INTEGER);"
+        ddl = "CREATE TABLE packages (name TEXT PRIMARY KEY, version TEXT NOT NULL, lastModified INTEGER NOT NULL, status INTEGER NOT NULL);"
     elif os.path.isfile(ddir):
         vprint("Could not initialize database: {} already exists".format(ddir), color=bcolors.FAIL)
         exit(3)
