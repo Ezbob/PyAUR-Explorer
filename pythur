@@ -10,11 +10,14 @@ import subprocess
 import datetime
 import configparser
 import warnings
+import sqlite3
+import enum
 
 AUR_URL = None
 RPC_URL = None
 OPTIONS = None
 CONFIG = None
+DB_CONNECT = None
 
 class bcolors:
     HEADER = '\033[95m'
@@ -26,19 +29,23 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
+class Status(enum.Enum):
+    Installed = 0
+    Downloaded = 1
+
 
 def argument_parse():   
     parser = argparse.ArgumentParser(
         description="Search for the pkg_name in the Arch User Repository",
         epilog="Get the latest version at https://github.com/Ezbob/PyAUR-Explorer")
-    parser.add_argument("pkg_name", 
+    parser.add_argument("pkg_name", nargs="?", default=None,
         help="Package name")
-    parser.add_argument("-lp","--long-print", action="store_true", 
+    parser.add_argument("-l","--long-print", action="store_true", 
         help="Prints all info fields")
     parser.add_argument("-q","--quite", action="store_false", 
         help="Suppresses extra explanatory messages")
     parser.add_argument("-a","--all", action="store_true", 
-        help="If no exact match is found, print all alternatives at once")
+        help="All entries at once")
     parser.add_argument("-e","--entries-shown",type=int, default=4, 
         help="Set the maximum number of entries shown when showing alternatives. " 
         "This option gets ignored if all alternatives are set to be shown")
@@ -50,6 +57,8 @@ def argument_parse():
         help="Download and install the package using makepkg")
     parser.add_argument("-u","--update", action="store_true",
         help="If package already exists in output directory, download it again")
+    parser.add_argument("-Q", "--query", action="store_true",
+        help="Query the database entries")
     return parser.parse_args()
 
 
@@ -91,7 +100,7 @@ def date_from_timestamp(timestamp):
         int(timestamp)
     ).strftime('%H:%M %d-%m-%Y')
 
-def ask( message ):
+def ask(message):
     return raw_input(message) if sys.version_info[0] == 2 else input(message)
 
 
@@ -140,7 +149,7 @@ def show_alternatives(count, results):
                 next_index += step
         
             if diff == 0:
-                choice_msg = "No more entries. Press {}enter{} to exit.\n".format(bcolors.OKGREEN, bcolors.ENDC)
+                exit(0)
             else:
                 choice_msg = "Press {}enter{} to show the next {} entries or {}ctrl-c{} to quit:\n"\
                     .format(bcolors.OKGREEN, bcolors.ENDC, diff, bcolors.FAIL, bcolors.ENDC)
@@ -150,13 +159,10 @@ def show_alternatives(count, results):
             except KeyboardInterrupt as e:
                 exit(0)
 
-            if diff == 0:
-                do_loop = False
-               
 
-def vprint(message):
+def vprint(*message):
     if OPTIONS['quite']:
-        print(message)
+        print(*message)
 
 
 def add_trailing_slash( path ):
@@ -212,17 +218,37 @@ def install_package(file_path):
 
                 vprint("Searching for PKGBUILD file...")
                 if not find_pkgbuild_file( extracted_dir ):
-                    print("Error: could not find PKGBUILD exiting...")
+                    print(bcolors.FAIL + "Error: could not find PKGBUILD exiting..." + bcolors.ENDC)
+                    exit(4)
           
                 vprint("PKGBUILD found.")
 
                 vprint("Parsing control to makepkg.")
-                exitcode = subprocess.call(['makepkg', "-sir"])
-                
-                if exitcode == 0:
-                    vprint("Installation was successful!")
-                else:
-                    vprint("Installation was unsuccessful.")
+                try:
+                    exitcode = subprocess.call(['makepkg', "-sir"])
+                    
+                    if exitcode == 0:
+                        vprint("{}Installation was successful!{}".format(bcolors.OKGREEN, bcolors.ENDC))
+                        return True
+                    else:
+                        vprint("{}Installation was unsuccessful.{}".format(bcolors.FAIL, bcolors.ENDC))
+                except KeyboardInterrupt:
+                    vprint('Interrupted.')
+                finally:
+                    subprocess.call(['chmod', '-R', '+rw', temp_dir])
+    return False
+
+def update_installed_packages(match_pkg):
+    name = match_pkg['Name']
+    count = DB_CONNECT.execute("SELECT EXISTS(SELECT 1 FROM packages WHERE name=? LIMIT 1);", (name,)).fetchone()[0]
+
+    if count:
+        DB_CONNECT.execute("UPDATE packages SET lastModified=?, status=?, version=? WHERE name=? ;", 
+            (match_pkg['LastModified'], Status.Installed.value, match_pkg['Version'], name))
+    else:
+        DB_CONNECT.execute("INSERT INTO packages VALUES (?,?,?,?);", 
+            (name, match_pkg['Version'], match_pkg['LastModified'], Status.Installed.value))
+    DB_CONNECT.commit()
 
 
 def direct_match(match_pkg):
@@ -243,7 +269,9 @@ def direct_match(match_pkg):
                 vprint("Downloaded. Saved as {}".format(file_path))
             else:
                 vprint("Package already exists as {!r}".format(file_path))
-            install_package( file_path )
+            has_been_installed = install_package( file_path )
+            if has_been_installed and do_download:
+                update_installed_packages(match_pkg)
 
     elif OPTIONS['download']:
         if do_download:
@@ -274,29 +302,72 @@ def initialize_config():
         warnings.warn("No or empty configuration file detected")
 
 
+def initialize_db():
+    global DB_CONNECT
+    ddir = CONFIG.get('database', 'databasedir', fallback=".db")
+    dbname = CONFIG.get('database', 'databasename', fallback="packages.sqlite")
+
+    if not dbname.endswith('.sqlite'):
+        vprint(bcolors.FAIL + "Database name must end with .sqlite" + bcolors.ENDC)
+        exit(3)
+
+    ddir = os.path.abspath(os.path.expanduser(ddir))
+    db_path = add_trailing_slash(ddir) + dbname
+    ddl = None
+
+    if not os.path.exists(ddir): 
+        os.makedirs(ddir)
+        ddl = "CREATE TABLE packages (name TEXT, version TEXT, lastModified INTEGER, status INTEGER);"
+    elif os.path.isfile(ddir):
+        vprint("{}Could not initialize database: {} already exists{}".format(bcolors.FAIL, ddir, bcolors.ENDC))
+        exit(3)
+
+    DB_CONNECT = sqlite3.connect(db_path)
+    DB_CONNECT.isolation_level = None
+    if ddl:
+        c = DB_CONNECT.execute(ddl)
+        DB_CONNECT.commit()
+
+
 if __name__ == '__main__':
     initialize_config()
+    initialize_db()
 
     AUR_URL = CONFIG.get('connections', 'aurbaseurl', fallback='https://aur.archlinux.org')
     RPC_URL = AUR_URL + CONFIG.get('connections', 'rpcurl', fallback='/rpc')
 
     package_name = consume_arguments()
 
-    direct_pkg_result = None
-    count, results = get_json_from_aur( package_name )
-    
-    if count == 0:
-        vprint(bcolors.FAIL + "No results found." + bcolors.ENDC)
-    else:
-        direct_pkg_result = find_direct_match(results)
+    if OPTIONS['query']:
 
-        results = sorted(results, 
-            key=lambda entry: entry['Popularity'], reverse=True) 
+        def print_qentries(stuff):
+            for name, version in stuff:
+                print("{}{}{} {}{}{}"
+                    .format(bcolors.BOLD, name, bcolors.ENDC, bcolors.OKGREEN, version, bcolors.ENDC))
 
-        if direct_pkg_result:
-            vprint("Found a direct match:")
-            direct_match( direct_pkg_result )
+        if package_name:
+            c = DB_CONNECT.execute("SELECT name, version FROM packages WHERE name LIKE '%'|| ? || '%'", (package_name,))
+            print_qentries(c.fetchall());
         else:
-            vprint("Could not find a direct match. Found {} alternatives:".format(count))
-            show_alternatives( count, results )
+            c = DB_CONNECT.execute("SELECT name, version FROM packages")
+            print_qentries(c.fetchall());
 
+
+    elif package_name:
+        direct_pkg_result = None
+        count, results = get_json_from_aur( package_name )
+        
+        if count == 0:
+            vprint(bcolors.FAIL + "No results found." + bcolors.ENDC)
+        else:
+            direct_pkg_result = find_direct_match(results)
+
+            results = sorted(results, 
+                key=lambda entry: entry['Popularity'], reverse=True) 
+
+            if direct_pkg_result:
+                vprint("Found a direct match:")
+                direct_match( direct_pkg_result )
+            else:
+                vprint("Could not find a direct match. Found {} alternatives:".format(count))
+                show_alternatives( count, results )
