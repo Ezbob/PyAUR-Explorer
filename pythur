@@ -33,6 +33,12 @@ class Status(enum.Enum):
     Installed = 0
     Downloaded = 1
 
+    def name_from_val(self, val):
+        if val == 0:
+            return Status.Installed.name
+        elif val == 1:
+            return Status.Download.name
+
 
 def argument_parse():   
     parser = argparse.ArgumentParser(
@@ -40,25 +46,20 @@ def argument_parse():
         epilog="Get the latest version at https://github.com/Ezbob/PyAUR-Explorer")
     parser.add_argument("pkg_name", nargs="?", default=None,
         help="Package name")
-    parser.add_argument("-l","--long-print", action="store_true", 
-        help="Prints all info fields")
-    parser.add_argument("-q","--quite", action="store_false", 
+    parser.add_argument("-q","--quiet", action="store_false", 
         help="Suppresses extra explanatory messages")
     parser.add_argument("-a","--all", action="store_true", 
-        help="All entries at once")
-    parser.add_argument("-e","--entries-shown",type=int, default=4, 
-        help="Set the maximum number of entries shown when showing alternatives. " 
-        "This option gets ignored if all alternatives are set to be shown")
+        help="Prints all info fields")
     parser.add_argument("-d","--download", action="store_true", 
         help="Download the package if a exact match was found")
-    parser.add_argument("-o","--output",default="packages/", 
-        help="Set the output directory for downloading packages. Default: packages/")
-    parser.add_argument("-i","--install",action="store_true", 
+    parser.add_argument("-I","--install",action="store_true", 
         help="Download and install the package using makepkg")
-    parser.add_argument("-u","--update", action="store_true",
-        help="If package already exists in output directory, download it again")
+    parser.add_argument("-U","--update", action="store_true",
+        help="Forces a download of the package")
     parser.add_argument("-Q", "--query", action="store_true",
         help="Query the database entries")
+    parser.add_argument("-R", "--sync", action="store_true",
+        help="Use pacman to sync database with removed packages")
     return parser.parse_args()
 
 
@@ -109,73 +110,46 @@ def decode(message, encoding='utf-8'):
 
 
 def print_entry(entry):
-    if OPTIONS['long_print']:
+    if OPTIONS['all']:
         print(bcolors.BOLD + decode(entry['Name']), bcolors.ENDC )
         for key, val in entry.items():
             if key == 'Name':
                 continue
             if key == 'FirstSubmitted' or key == 'LastModified':
-                print("\t{}{}{}: {}".format(bcolors.OKBLUE, key, bcolors.ENDC, date_from_timestamp(decode(val))))
+                print("    {}{}{}: {}".format(bcolors.OKBLUE, key, bcolors.ENDC, date_from_timestamp(decode(val))))
             else:
-                print("\t{}{}{}: {}".format(bcolors.OKBLUE, key, bcolors.ENDC, decode(val)))
+                print("    {}{}{}: {}".format(bcolors.OKBLUE, key, bcolors.ENDC, decode(val)))
     else:
-        keys = ['Description', 'Maintainer', 'Version', 'Popularity']
-        if entry['Name'] != None:
-            print(bcolors.BOLD + decode(entry['Name']) + bcolors.ENDC)
-        for key in keys:
-            print("\t{}{}{}: {}".format(bcolors.OKBLUE, key, bcolors.ENDC, decode(entry[key])))
+        v = bcolors.OKGREEN + decode(entry['Version']) + bcolors.ENDC
+        name = bcolors.BOLD + decode(entry['Name']) + bcolors.ENDC
+        print(name + " " + v)
+        print("    {}{}{}".format(bcolors.HEADER, decode(entry['Description']), bcolors.ENDC))
 
 
-def show_alternatives(count, results):
-    if OPTIONS['all']:
-        for entry in results:
-            print_entry(entry)
-    else:
-        step = OPTIONS['entries_shown']
+def vprint(*message, color=None):
+    if OPTIONS['quiet']:
+        cprint(*message, color=color)
 
-        next_index = min( count, step )
-        do_loop = True
-        index = 0
-        while do_loop:
-            for index in range( index, next_index ):
-                print_entry( results[index] )
-
-            index += 1
-            diff = count - index 
-            
-            if diff - 1 < step:
-                next_index = count
-            else:
-                next_index += step
-        
-            if diff == 0:
-                exit(0)
-            else:
-                choice_msg = "Press {}enter{} to show the next {} entries or {}ctrl-c{} to quit:\n"\
-                    .format(bcolors.OKGREEN, bcolors.ENDC, diff, bcolors.FAIL, bcolors.ENDC)
-
-            try:
-                choice = ask(choice_msg).strip().lower()
-            except KeyboardInterrupt as e:
-                exit(0)
-
-
-def vprint(*message):
-    if OPTIONS['quite']:
-        print(*message)
-
+def cprint(*message, color=None):
+    if color:
+        print(color, end='')
+    print(*message)
+    if color:
+        print(bcolors.ENDC, end='')
 
 def add_trailing_slash( path ):
     return path if path.endswith("/") else path + "/"
 
 
 def check_or_make_out_dir():
-    if not os.path.exists(OPTIONS['output']):
-        os.mkdir(OPTIONS['output'])
-    elif not os.path.isdir(OPTIONS['output']):
-        print("Output directory chosen is not a directory. Exiting.")
+    pkg_dir = os.path.abspath(os.path.expanduser(CONFIG['cache']['packagepath']))
+
+    if not os.path.exists(pkg_dir):
+        os.makedirs(pkg_dir, mode=0o660)
+    elif not os.path.isdir(pkg_dir):
+        cprint("Output directory chosen is not a directory. Exiting.", color=bcolors.FAIL)
         exit(1)
-    return add_trailing_slash( OPTIONS['output'] )
+    return add_trailing_slash(pkg_dir)
 
 
 def download_package(tar_url, file_path, chunk_size=64):
@@ -238,11 +212,9 @@ def install_package(file_path):
                     subprocess.call(['chmod', '-R', '+rw', temp_dir])
     return False
 
-def update_installed_packages(match_pkg):
+def update_installed_packages(match_pkg, do_update=False):
     name = match_pkg['Name']
-    count = DB_CONNECT.execute("SELECT EXISTS(SELECT 1 FROM packages WHERE name=? LIMIT 1);", (name,)).fetchone()[0]
-
-    if count:
+    if do_update:
         DB_CONNECT.execute("UPDATE packages SET lastModified=?, status=?, version=? WHERE name=? ;", 
             (match_pkg['LastModified'], Status.Installed.value, match_pkg['Version'], name))
     else:
@@ -257,21 +229,23 @@ def direct_match(match_pkg):
 
     output_path = check_or_make_out_dir()
     file_path = output_path + filename
+    entry = DB_CONNECT.execute("SELECT version FROM packages WHERE name=? ;", (match_pkg['Name'],)).fetchone()
     do_download = OPTIONS['update'] or not (os.path.exists(file_path) and os.path.isfile(file_path))
+    do_update = len(entry) > 0 and entry[0] != match_pkg['Version']
 
     if OPTIONS['install']:
-        print( "WARNING: Packages can contain malicious code. Install only from trusted sources." )
-        choice = ask("Install package {} anyway? [N,y] ".format( match_pkg['Name'] ))
+        cprint( "WARNING: Packages can contain malicious code. Install only from trusted sources.", color=bcolors.WARNING)
+        choice = ask("Install package {} anyway? [N,y] ".format(match_pkg['Name']))
         if choice.strip().lower() == "y":
-            if do_download:
+            if do_download or do_update:
                 vprint("Downloading...")
                 download_package(match_pkg['URLPath'], file_path)
                 vprint("Downloaded. Saved as {}".format(file_path))
             else:
                 vprint("Package already exists as {!r}".format(file_path))
-            has_been_installed = install_package( file_path )
-            if has_been_installed and do_download:
-                update_installed_packages(match_pkg)
+            has_been_installed = install_package(file_path)
+            if has_been_installed:
+                update_installed_packages(match_pkg, do_update=do_update)
 
     elif OPTIONS['download']:
         if do_download:
@@ -285,13 +259,11 @@ def direct_match(match_pkg):
 
 
 def find_direct_match( results ):
-    direct_pkg_result = None
     for result in results:
         if result['Name'] == package_name:
             direct_pkg_result = result
             results.remove(result)
-            break
-    return direct_pkg_result
+            return direct_pkg_result
 
 
 def initialize_config():
@@ -319,7 +291,7 @@ def initialize_db():
         os.makedirs(ddir)
         ddl = "CREATE TABLE packages (name TEXT, version TEXT, lastModified INTEGER, status INTEGER);"
     elif os.path.isfile(ddir):
-        vprint("{}Could not initialize database: {} already exists{}".format(bcolors.FAIL, ddir, bcolors.ENDC))
+        vprint("Could not initialize database: {} already exists".format(ddir), color=bcolors.FAIL)
         exit(3)
 
     DB_CONNECT = sqlite3.connect(db_path)
@@ -327,6 +299,16 @@ def initialize_db():
     if ddl:
         c = DB_CONNECT.execute(ddl)
         DB_CONNECT.commit()
+
+def remove_sync_db():
+    names = DB_CONNECT.execute("SELECT name FROM packages").fetchall()
+    found_names = []
+    for pkg_name in names:
+        found = subprocess.call(['pacman', '-Qeq' , pkg_name[0]], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        if found != 0:
+            found_names.append(pkg_name)
+    DB_CONNECT.executemany('DELETE FROM packages WHERE name=?', found_names)
+    DB_CONNECT.commit()
 
 
 if __name__ == '__main__':
@@ -339,11 +321,11 @@ if __name__ == '__main__':
     package_name = consume_arguments()
 
     if OPTIONS['query']:
-
         def print_qentries(stuff):
             for name, version in stuff:
                 print("{}{}{} {}{}{}"
-                    .format(bcolors.BOLD, name, bcolors.ENDC, bcolors.OKGREEN, version, bcolors.ENDC))
+                    .format(bcolors.BOLD, name, bcolors.ENDC, 
+                        bcolors.OKGREEN, version, bcolors.ENDC))
 
         if package_name:
             c = DB_CONNECT.execute("SELECT name, version FROM packages WHERE name LIKE '%'|| ? || '%'", (package_name,))
@@ -352,13 +334,17 @@ if __name__ == '__main__':
             c = DB_CONNECT.execute("SELECT name, version FROM packages")
             print_qentries(c.fetchall());
 
-
+    elif OPTIONS['sync']:
+        vprint("Removing old database entries...")
+        remove_sync_db()
+        vprint("Removed.")
     elif package_name:
         direct_pkg_result = None
         count, results = get_json_from_aur( package_name )
         
         if count == 0:
-            vprint(bcolors.FAIL + "No results found." + bcolors.ENDC)
+            cprint("No results found.", bcolors.FAIL)
+            exit(1)
         else:
             direct_pkg_result = find_direct_match(results)
 
@@ -366,8 +352,9 @@ if __name__ == '__main__':
                 key=lambda entry: entry['Popularity'], reverse=True) 
 
             if direct_pkg_result:
-                vprint("Found a direct match:")
-                direct_match( direct_pkg_result )
+                direct_match(direct_pkg_result)
             else:
-                vprint("Could not find a direct match. Found {} alternatives:".format(count))
-                show_alternatives( count, results )
+                for entry in results:
+                    print_entry(entry)
+    else:
+        exit(1)
