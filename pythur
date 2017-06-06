@@ -60,6 +60,8 @@ def argument_parse():
         help="Query the database entries")
     parser.add_argument("-R", "--sync", action="store_true",
         help="Use pacman to sync database with removed packages")
+    parser.add_argument("-y", "--yes", action="store_true",
+        help="Say yes to all interactive questions when downloading packages")
     return parser.parse_args()
 
 
@@ -102,7 +104,10 @@ def date_from_timestamp(timestamp):
     ).strftime('%H:%M %d-%m-%Y')
 
 def ask(message):
-    return raw_input(message) if sys.version_info[0] == 2 else input(message)
+    if OPTIONS['yes']:
+        return 'y'
+    else:
+        return raw_input(message) if sys.version_info[0] == 2 else input(message)
 
 
 def decode(message, encoding='utf-8'):
@@ -168,7 +173,7 @@ def find_pkgbuild_file(path):
     return False
 
 
-def install_package(file_path):
+def install_package(file_path, pkg_name):
     with tempfile.TemporaryDirectory() as temp_dir:
 
         shutil.copy(file_path, temp_dir)
@@ -201,13 +206,13 @@ def install_package(file_path):
                 try:
                     exitcode = subprocess.call(['makepkg', "-sir"])
                     
-                    if exitcode == 0:
+                    if exitcode == 0 and is_installed(pkg_name):
                         vprint("{}Installation was successful!{}".format(bcolors.OKGREEN, bcolors.ENDC))
                         return True
                     else:
                         vprint("{}Installation was unsuccessful.{}".format(bcolors.FAIL, bcolors.ENDC))
                 except KeyboardInterrupt:
-                    vprint('Interrupted.')
+                    vprint('Interrupted.', color=bcolors.FAIL)
                 finally:
                     subprocess.call(['chmod', '-R', '+rw', temp_dir])
     return False
@@ -246,7 +251,7 @@ def direct_match(match_pkg):
                 vprint("Downloaded. Saved as {}".format(file_path))
             else:
                 vprint("Package already exists as {!r}".format(file_path))
-            has_been_installed = install_package(file_path)
+            has_been_installed = install_package(file_path, match_pkg['Name'])
             if has_been_installed:
                 update_installed_packages(match_pkg, do_update=do_update)
 
@@ -303,12 +308,15 @@ def initialize_db():
         c = DB_CONNECT.execute(ddl)
         DB_CONNECT.commit()
 
+def is_installed(pkg_name):
+    return subprocess.call(['pacman', '-Qeq' , pkg_name], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL) == 0
+
 def remove_sync_db():
     names = DB_CONNECT.execute("SELECT name FROM packages").fetchall()
     found_names = []
+
     for pkg_name in names:
-        found = subprocess.call(['pacman', '-Qeq' , pkg_name[0]], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-        if found != 0:
+        if not is_installed(pkg_name[0]):
             found_names.append(pkg_name)
     DB_CONNECT.executemany('DELETE FROM packages WHERE name=?', found_names)
     DB_CONNECT.commit()
